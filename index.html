@@ -58,12 +58,10 @@
 <div id="timer"></div>
 
 <script type="module">
-  // Import Firebase SDK functions
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
-  import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
   import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-analytics.js";
+  import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
 
-  // Your Firebase config (keep as is)
   const firebaseConfig = {
     apiKey: "AIzaSyAbHZGLZc3oCVwkca8t--bHSpfpVTAb5eE",
     authDomain: "totemic-effect-466313-u5.firebaseapp.com",
@@ -74,7 +72,6 @@
     measurementId: "G-TX1TBM01Z6"
   };
 
-  // Initialize Firebase
   const app = initializeApp(firebaseConfig);
   const analytics = getAnalytics(app);
   const db = getFirestore(app);
@@ -180,21 +177,26 @@
     setInterval(updateCode, 1000);
   }
 
-  // Fetch secret from Firestore and start TOTP
-  async function fetchSecretFromFirestore() {
-    const docRef = doc(db, "totp_secrets", "your_document_id");
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists()) {
-      const secret = docSnap.data().secretKey;
-      document.getElementById("secret").value = secret;
-      startAutoRefresh();
-    } else {
-      document.getElementById("code").textContent = "No secret found";
+  // Fetch Base32 secret from Firestore, then start TOTP
+  async function fetchSecretAndStart() {
+    try {
+      const docRef = doc(db, "totp_secrets", "your_document_id");
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        const secret = docSnap.data().secretKey; // adjust the field name as you used
+        document.getElementById("secret").value = secret;
+        startAutoRefresh();
+      } else {
+        document.getElementById("code").textContent = "No secret found in database";
+      }
+    } catch (error) {
+      document.getElementById("code").textContent = "Error fetching secret";
+      console.error("Error fetching secret from Firestore:", error);
     }
   }
 
   window.onload = () => {
-    fetchSecretFromFirestore();
+    fetchSecretAndStart();
   };
 </script>
 
