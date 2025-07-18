@@ -57,120 +57,13 @@
 
 <div id="timer"></div>
 
-<script>
-// Base32 decoder (RFC4648)
-function base32tohex(base32) {
-  const base32chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  let bits = "";
-  let hex = "";
-  base32 = base32.toUpperCase().replace(/=+$/, "").replace(/ /g, "");
-  for (let i = 0; i < base32.length; i++) {
-    const val = base32chars.indexOf(base32.charAt(i));
-    if (val === -1) return null;
-    bits += val.toString(2).padStart(5, '0');
-  }
-  for (let i = 0; i + 4 <= bits.length; i += 4) {
-    hex += parseInt(bits.substr(i, 4), 2).toString(16);
-  }
-  return hex;
-}
-
-function hexToBytes(hex) {
-  const bytes = [];
-  for (let c = 0; c < hex.length; c += 2) {
-    bytes.push(parseInt(hex.substr(c, 2), 16));
-  }
-  return bytes;
-}
-
-async function hmacSha1(keyBytes, messageBytes) {
-  const cryptoKey = await crypto.subtle.importKey(
-    "raw",
-    new Uint8Array(keyBytes),
-    { name: "HMAC", hash: "SHA-1" },
-    false,
-    ["sign"]
-  );
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    cryptoKey,
-    new Uint8Array(messageBytes)
-  );
-  return new Uint8Array(signature);
-}
-
-async function generateTOTP() {
-  const secretInput = document.getElementById("secret").value.trim();
-  const secretHex = base32tohex(secretInput);
-  if (!secretHex) {
-    document.getElementById("code").textContent = "Invalid Secret";
-    document.getElementById("timer").textContent = "";
-    return;
-  }
-  const keyBytes = hexToBytes(secretHex);
-
-  const epoch = Math.floor(Date.now() / 1000);
-  const timeStep = Math.floor(epoch / 30);
-  const secondsRemaining = 30 - (epoch % 30);
-
-  const timeBytes = new Array(8).fill(0);
-  let val = timeStep;
-  for (let i = 7; i >= 0; i--) {
-    timeBytes[i] = val & 0xff;
-    val = val >> 8;
-  }
-
-  const hash = await hmacSha1(keyBytes, timeBytes);
-
-  const offset = hash[hash.length - 1] & 0xf;
-  const binary =
-    ((hash[offset] & 0x7f) << 24) |
-    ((hash[offset + 1] & 0xff) << 16) |
-    ((hash[offset + 2] & 0xff) << 8) |
-    (hash[offset + 3] & 0xff);
-
-  const otp = (binary % 1000000).toString().padStart(6, "0");
-
-  document.getElementById("code").textContent = otp;
-  document.getElementById("timer").textContent = `Expires in ${secondsRemaining} seconds`;
-  return otp;
-}
-
-function startAutoRefresh() {
-  const copyBtn = document.querySelector(".copyBtn");
-  const copiedMessage = document.getElementById("copiedMessage");
-
-  async function updateCode() {
-    const otp = await generateTOTP();
-    copiedMessage.classList.remove("visible");
-    copyBtn.dataset.currentCode = otp;
-  }
-
-  copyBtn.addEventListener("click", () => {
-    const code = copyBtn.dataset.currentCode;
-    if (!code) return;
-    navigator.clipboard.writeText(code).then(() => {
-      copiedMessage.classList.add("visible");
-      setTimeout(() => copiedMessage.classList.remove("visible"), 1500);
-    });
-  });
-
-  updateCode();
-  setInterval(updateCode, 1000);
-}
-
-window.onload = () => {
-  const secret = "ms64 cmjr snpr xerm 5hwg ippl m4gg kmyj";
-  document.getElementById("secret").value = secret;
-  startAutoRefresh();
-};
-</script>
-
-<!-- Firebase Config and SDK (Step 4) -->
 <script type="module">
+  // Import Firebase SDK functions
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js";
+  import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-firestore.js";
   import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-analytics.js";
 
+  // Your Firebase config (keep as is)
   const firebaseConfig = {
     apiKey: "AIzaSyAbHZGLZc3oCVwkca8t--bHSpfpVTAb5eE",
     authDomain: "totemic-effect-466313-u5.firebaseapp.com",
@@ -181,8 +74,128 @@ window.onload = () => {
     measurementId: "G-TX1TBM01Z6"
   };
 
+  // Initialize Firebase
   const app = initializeApp(firebaseConfig);
   const analytics = getAnalytics(app);
+  const db = getFirestore(app);
+
+  // Base32 decoder (RFC4648)
+  function base32tohex(base32) {
+    const base32chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    let bits = "";
+    let hex = "";
+    base32 = base32.toUpperCase().replace(/=+$/, "").replace(/ /g, "");
+    for (let i = 0; i < base32.length; i++) {
+      const val = base32chars.indexOf(base32.charAt(i));
+      if (val === -1) return null;
+      bits += val.toString(2).padStart(5, '0');
+    }
+    for (let i = 0; i + 4 <= bits.length; i += 4) {
+      hex += parseInt(bits.substr(i, 4), 2).toString(16);
+    }
+    return hex;
+  }
+
+  function hexToBytes(hex) {
+    const bytes = [];
+    for (let c = 0; c < hex.length; c += 2) {
+      bytes.push(parseInt(hex.substr(c, 2), 16));
+    }
+    return bytes;
+  }
+
+  async function hmacSha1(keyBytes, messageBytes) {
+    const cryptoKey = await crypto.subtle.importKey(
+      "raw",
+      new Uint8Array(keyBytes),
+      { name: "HMAC", hash: "SHA-1" },
+      false,
+      ["sign"]
+    );
+    const signature = await crypto.subtle.sign(
+      "HMAC",
+      cryptoKey,
+      new Uint8Array(messageBytes)
+    );
+    return new Uint8Array(signature);
+  }
+
+  async function generateTOTP() {
+    const secretInput = document.getElementById("secret").value.trim();
+    const secretHex = base32tohex(secretInput);
+    if (!secretHex) {
+      document.getElementById("code").textContent = "Invalid Secret";
+      document.getElementById("timer").textContent = "";
+      return;
+    }
+    const keyBytes = hexToBytes(secretHex);
+
+    const epoch = Math.floor(Date.now() / 1000);
+    const timeStep = Math.floor(epoch / 30);
+    const secondsRemaining = 30 - (epoch % 30);
+
+    const timeBytes = new Array(8).fill(0);
+    let val = timeStep;
+    for (let i = 7; i >= 0; i--) {
+      timeBytes[i] = val & 0xff;
+      val = val >> 8;
+    }
+
+    const hash = await hmacSha1(keyBytes, timeBytes);
+
+    const offset = hash[hash.length - 1] & 0xf;
+    const binary =
+      ((hash[offset] & 0x7f) << 24) |
+      ((hash[offset + 1] & 0xff) << 16) |
+      ((hash[offset + 2] & 0xff) << 8) |
+      (hash[offset + 3] & 0xff);
+
+    const otp = (binary % 1000000).toString().padStart(6, "0");
+
+    document.getElementById("code").textContent = otp;
+    document.getElementById("timer").textContent = `Expires in ${secondsRemaining} seconds`;
+    return otp;
+  }
+
+  function startAutoRefresh() {
+    const copyBtn = document.querySelector(".copyBtn");
+    const copiedMessage = document.getElementById("copiedMessage");
+
+    async function updateCode() {
+      const otp = await generateTOTP();
+      copiedMessage.classList.remove("visible");
+      copyBtn.dataset.currentCode = otp;
+    }
+
+    copyBtn.addEventListener("click", () => {
+      const code = copyBtn.dataset.currentCode;
+      if (!code) return;
+      navigator.clipboard.writeText(code).then(() => {
+        copiedMessage.classList.add("visible");
+        setTimeout(() => copiedMessage.classList.remove("visible"), 1500);
+      });
+    });
+
+    updateCode();
+    setInterval(updateCode, 1000);
+  }
+
+  // Fetch secret from Firestore and start TOTP
+  async function fetchSecretFromFirestore() {
+    const docRef = doc(db, "totp_secrets", "your_document_id");
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      const secret = docSnap.data().secretKey;
+      document.getElementById("secret").value = secret;
+      startAutoRefresh();
+    } else {
+      document.getElementById("code").textContent = "No secret found";
+    }
+  }
+
+  window.onload = () => {
+    fetchSecretFromFirestore();
+  };
 </script>
 
 </body>
