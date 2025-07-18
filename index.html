@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>TOTP Generator with Copy Button</title>
+<style>
+  body { font-family: monospace; padding: 30px; background: #f5f5f5; text-align: center; }
+  input { font-size: 1.2em; padding: 10px; width: 350px; margin: 10px 0; }
+  #codeContainer {
+    margin-top: 20px;
+    font-size: 4em;
+    letter-spacing: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  #code { user-select: all; }
+  button.copyBtn {
+    font-size: 0.5em;
+    padding: 8px 12px;
+    cursor: pointer;
+    border: 1px solid #999;
+    border-radius: 4px;
+    background: #eee;
+    transition: background 0.2s ease;
+  }
+  button.copyBtn:hover {
+    background: #ddd;
+  }
+  #timer {
+    font-size: 1.5em;
+    color: #666;
+    margin-top: 10px;
+  }
+  #copiedMessage {
+    font-size: 0.8em;
+    color: green;
+    margin-left: 10px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  #copiedMessage.visible {
+    opacity: 1;
+  }
+</style>
+</head>
+<body>
+
+<h2>Your Secret Key (Base32)</h2>
+<input type="text" id="secret" readonly />
+
+<div id="codeContainer">
+  <div id="code"></div>
+  <button class="copyBtn" title="Copy code">Copy</button>
+  <div id="copiedMessage">Copied!</div>
+</div>
+
+<div id="timer"></div>
+
+<script>
+// Base32 decoder (RFC4648)
+function base32tohex(base32) {
+  const base32chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = "";
+  let hex = "";
+  base32 = base32.toUpperCase().replace(/=+$/, "").replace(/ /g, "");
+  for (let i = 0; i < base32.length; i++) {
+    const val = base32chars.indexOf(base32.charAt(i));
+    if (val === -1) return null; // invalid character
+    bits += val.toString(2).padStart(5, '0');
+  }
+  for (let i = 0; i + 4 <= bits.length; i += 4) {
+    hex += parseInt(bits.substr(i, 4), 2).toString(16);
+  }
+  return hex;
+}
+
+function hexToBytes(hex) {
+  const bytes = [];
+  for (let c = 0; c < hex.length; c += 2) {
+    bytes.push(parseInt(hex.substr(c, 2), 16));
+  }
+  return bytes;
+}
+
+async function hmacSha1(keyBytes, messageBytes) {
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    new Uint8Array(keyBytes),
+    { name: "HMAC", hash: "SHA-1" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    cryptoKey,
+    new Uint8Array(messageBytes)
+  );
+  return new Uint8Array(signature);
+}
+
+async function generateTOTP() {
+  const secretInput = document.getElementById("secret").value.trim();
+  const secretHex = base32tohex(secretInput);
+  if (!secretHex) {
+    document.getElementById("code").textContent = "Invalid Secret";
+    document.getElementById("timer").textContent = "";
+    return;
+  }
+  const keyBytes = hexToBytes(secretHex);
+
+  const epoch = Math.floor(Date.now() / 1000);
+  const timeStep = Math.floor(epoch / 30);
+  const secondsRemaining = 30 - (epoch % 30);
+
+  const timeBytes = new Array(8).fill(0);
+  let val = timeStep;
+  for (let i = 7; i >= 0; i--) {
+    timeBytes[i] = val & 0xff;
+    val = val >> 8;
+  }
+
+  const hash = await hmacSha1(keyBytes, timeBytes);
+
+  const offset = hash[hash.length - 1] & 0xf;
+  const binary =
+    ((hash[offset] & 0x7f) << 24) |
+    ((hash[offset + 1] & 0xff) << 16) |
+    ((hash[offset + 2] & 0xff) << 8) |
+    (hash[offset + 3] & 0xff);
+
+  const otp = (binary % 1000000).toString().padStart(6, "0");
+
+  document.getElementById("code").textContent = otp;
+  document.getElementById("timer").textContent = `Expires in ${secondsRemaining} seconds`;
+  return otp;
+}
+
+function startAutoRefresh() {
+  const copyBtn = document.querySelector(".copyBtn");
+  const copiedMessage = document.getElementById("copiedMessage");
+
+  async function updateCode() {
+    const otp = await generateTOTP();
+    copiedMessage.classList.remove("visible");
+    // store current otp to use for copying
+    copyBtn.dataset.currentCode = otp;
+  }
+
+  copyBtn.addEventListener("click", () => {
+    const code = copyBtn.dataset.currentCode;
+    if (!code) return;
+    navigator.clipboard.writeText(code).then(() => {
+      copiedMessage.classList.add("visible");
+      setTimeout(() => copiedMessage.classList.remove("visible"), 1500);
+    });
+  });
+
+  updateCode();
+  setInterval(updateCode, 1000);
+}
+
+window.onload = () => {
+  const secret = "ms64 cmjr snpr xerm 5hwg ippl m4gg kmyj";
+  document.getElementById("secret").value = secret;
+  startAutoRefresh();
+};
+</script>
+
+</body>
+</html>
